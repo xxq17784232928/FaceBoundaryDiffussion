@@ -1,3 +1,6 @@
 FaceBoundaryDiffussion/datasets/__pycache__
 FaceBoundaryDiffussion/configs/__pycache__
 FaceBoundaryDiffussion/utils/__pycache__
+FaceBoundaryDiffussion/output
+FaceBoundaryDiffussion/precomputed
+FaceBoundaryDiffussion/printout
