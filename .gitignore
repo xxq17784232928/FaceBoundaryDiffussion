@@ -5,3 +5,9 @@ FaceBoundaryDiffussion/output
 FaceBoundaryDiffussion/precomputed
 FaceBoundaryDiffussion/printout
 FaceBoundaryDiffussion/pretrained
+FaceBoundaryDiffussion/boundary
+FaceBoundaryDiffussion/__pycache__
+FaceBoundaryDiffussion/datasets/__pycache__
+FaceBoundaryDiffussion/utils/__pycache__
+FaceBoundaryDiffussion/models/ddpm/__pycache__
+FaceBoundaryDiffussion/models/improved_ddpm/__pycache__
