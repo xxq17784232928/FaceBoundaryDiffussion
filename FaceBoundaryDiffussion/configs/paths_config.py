@@ -1,6 +1,6 @@
 DATASET_PATHS = {
 	'FFHQ': '/n/fs/visualai-scr/Data/CelebA-HQ/',
-	'CelebA_HQ': '/hexp/xxq/project/BoundaryDiffusion/output/lmdb/Heavy_Makeup',#Smiling2是完整的
+	'CelebA_HQ': '/hexp/xxq/project/FaceBoundaryDiffussion/FaceBoundaryDiffussion/output/lmdb/Smiling',#Smiling2是完整的
 	'AFHQ': '/n/fs/visualai-scr/Data/AFHQ-Dog/',
 	'LSUN':  '/n/fs/yz-diff/dataset/',
     'IMAGENET': 'data/imagenet/',
