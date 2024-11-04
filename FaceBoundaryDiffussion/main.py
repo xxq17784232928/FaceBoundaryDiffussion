@@ -31,6 +31,7 @@ def parse_args_and_config():
     parser.add_argument('--config', type=str, required=True, help='Path to the config file')
     parser.add_argument('--seed', type=int, default=1006, help='Random seed')
     parser.add_argument('--exp', type=str, default='./runs/', help='Path for saving running related data.')
+    parser.add_argument('--saveBoundary', type=str, default='', help='Path for saving boundary search.')
     parser.add_argument('--comment', type=str, default='', help='A string for experiment comment')
     parser.add_argument('--verbose', type=str, default='info', help='Verbose level: info | debug | warning | critical')
     parser.add_argument('--ni', type=int, default=1,  help="No interaction. Suitable for Slurm Job launcher")
@@ -59,6 +60,7 @@ def parse_args_and_config():
     parser.add_argument('--save_train_image', type=int, default=1, help='Wheter to save training results during CLIP fineuning')
     parser.add_argument('--bs_train', type=int, default=1, help='Training batch size during CLIP fineuning')
     parser.add_argument('--bs_test', type=int, default=1, help='Test batch size during CLIP fineuning')
+    #attention:n_precomp_img控制了训练和测试的图片数量
     parser.add_argument('--n_precomp_img', type=int, default=100, help='# of images to precompute latents')
     parser.add_argument('--n_train_img', type=int, default=50, help='# of training images')
     parser.add_argument('--n_test_img', type=int, default=10, help='# of test images')
