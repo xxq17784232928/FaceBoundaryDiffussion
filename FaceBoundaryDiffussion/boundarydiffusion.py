@@ -22,6 +22,10 @@ from datasets.imagenet_dic import IMAGENET_DIC
 from utils.align_utils import run_alignment
 from utils.distance_utils import euclidean_distance, cosine_similarity
 
+from io import BytesIO
+import torchvision.utils as tvu
+import torchvision.transforms as T
+
 
 # 导入必要的模块
 from PIL import Image, ImageDraw, ImageFont
@@ -57,8 +61,7 @@ def compute_radius(x):
     return r
 
 def add_label_to_image(image_tensor, label, font=None):
-    from io import BytesIO
-    import torchvision.utils as tvu
+    
 
     # 将图像张量保存到内存中的字节流
     buffer = BytesIO()
@@ -95,6 +98,38 @@ def add_label_to_image(image_tensor, label, font=None):
     draw.text(text_position, label, font=font, fill=(0, 0, 0))
 
     return new_image
+
+# 假设 add_label_to_image 是一个已定义的函数
+def add_label_edit_mid_to_image(tensor, filename):
+    
+    # 转换为 PIL 图像并保存
+    tensor = tensor.squeeze(0)  # 去掉批次维度，变为 (512, 8, 8)
+    
+    # 使用 torch 的插值进行调整大小
+    tensor_resized = T.Resize((256, 256))(tensor[:3])  # 只取前 3 个通道，并调整为 256x256
+
+    # 将张量值限制在 [0, 1] 之间
+    tensor_resized = torch.clamp(tensor_resized, 0, 1)
+    
+    # 转换为 PIL 图像
+    image = T.ToPILImage()(tensor_resized)
+
+    return image
+
+# 假设 add_label_edit_mid_to_image 是您已定义的一个函数
+def add_label_edit_h_to_image(tensor, filename):
+      # 使用插值将张量从 (1, 512, 8, 8) 调整为 (1, 512, 256, 256)
+    tensor_resized = torch.nn.functional.interpolate(tensor, size=(256, 256), mode='bilinear')
+    
+    # 如果需要 RGB 图像，我们可以选择前 3 个通道
+    tensor_resized = tensor_resized[:, :3, :, :]  # 取前 3 个通道作为 RGB
+    
+    # 将张量值限制在 [0, 1] 之间
+    tensor_resized = torch.clamp(tensor_resized, 0, 1)
+    
+    # 转换为 PIL 图像
+    image = T.ToPILImage()(tensor_resized.squeeze(0))  # 去掉批次维度，变成 (3, 256, 256)
+    return image
 
 
 def create_image_grid(images, n_cols):
@@ -359,11 +394,11 @@ class BoundaryDiffusion(object):
         return
 
     def boundary_search(self):
-        print(self.args.exp)
+        print(self.args.saveBoundary)
         # 获取当前的日期时间并格式化为字符串（年-月-日_时-分-秒）
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         # 构建保存文件夹的路径，确保路径是通过 os.path.join 兼容构建
-        save_boundarydir = os.path.join("boundary/", current_time)
+        save_boundarydir = os.path.join(self.args.saveBoundary, current_time)
         # 如果文件夹不存在，则创建它
         os.makedirs(save_boundarydir, exist_ok=True)
 
@@ -386,7 +421,8 @@ class BoundaryDiffusion(object):
         img_lat_pairs_dic = {}
         for mode in ['train', 'test']:
             img_lat_pairs = []
-            pairs_path = os.path.join('precomputed/',f'{self.config.data.category}_{mode}_t{self.args.t_0}_nim{self.args.n_precomp_img}_ninv{self.args.n_inv_step}_pairs.pth')
+            category_pairs_path=os.path.join('/hexp/xxq/project/FaceBoundaryDiffussion/FaceBoundaryDiffussion/precomputed/',f'{self.args.edit_attr}/')
+            pairs_path = os.path.join(category_pairs_path,f'{self.config.data.category}_{mode}_t{self.args.t_0}_nim{self.args.n_precomp_img}_ninv{self.args.n_inv_step}_pairs.pth')
             print(pairs_path)
             if os.path.exists(pairs_path):
                 print(f'{mode} pairs exists')
@@ -412,6 +448,10 @@ class BoundaryDiffusion(object):
                 label = label.to(self.config.device)
 
                 with torch.no_grad():
+                    # 初始化一个列表来存储所有的图片和标签
+                    images_inversion_list = []
+                    images_inversion_mid_list=[]
+
                     with tqdm(total=len(seq_inv), desc=f"Inversion process {mode} {step}") as progress_bar:
                         for it, (i, j) in enumerate(zip((seq_inv_next[1:]), (seq_inv[1:]))):
                             t = (torch.ones(n) * i).to(self.device)
@@ -420,8 +460,29 @@ class BoundaryDiffusion(object):
                             x, mid_h_g = denoising_step(x, t=t, t_next=t_prev, models=model, logvars=self.logvar, sampling_type='ddim', b=self.betas, eta=0, learn_sigma=learn_sigma)
 
                             progress_bar.update(1)
+
+                            save_inversion_edit = "inversion_"+str(it)+".png"
+                            labeled_inversion_image = add_label_to_image((x + 1) * 0.5, save_inversion_edit)
+                            images_inversion_list.append(labeled_inversion_image)
+
+                            save_inversion_mid_edit = "inversion_"+str(it)+".png"
+                            labeled_inversion_mid_image = add_label_to_image((x + 1) * 0.5, save_inversion_edit)
+                            images_inversion_mid_list.append(labeled_inversion_mid_image)
+
+                    # 在循环结束后，将所有图片组合成一张表格图片并保存
+                    grid_inversion_image = create_image_grid(images_inversion_list, n_cols=5)  # 根据需要调整每行的图片数量
+                    grid_inversion_image.save(os.path.join(f'{save_boundarydir}/', f"grid_inversion_{mode}_{step}_image.png"))
+
+                    # 在循环结束后，将所有图片组合成一张表格图片并保存
+                    grid_inversion_mid_image = create_image_grid(images_inversion_mid_list, n_cols=5)  # 根据需要调整每行的图片数量
+                    grid_inversion_mid_image.save(os.path.join(f'{save_boundarydir}/', f"grid_inversion_{mode}_{step}_mid_image.png"))
+
+
                     x_lat = x.clone()
                     tvu.save_image((x_lat + 1) * 0.5, os.path.join(save_boundarydir,f'{mode}_{step}_1_lat_ninv{self.args.n_inv_step}.png'))
+
+                    # 初始化一个列表来存储所有的图片和标签
+                    images_generative_list = []
 
                     with tqdm(total=len(seq_inv), desc=f"Generative process {mode} {step}") as progress_bar:
                         for it, (i, j) in enumerate(zip(reversed((seq_inv)), reversed((seq_inv_next)))):
@@ -432,13 +493,21 @@ class BoundaryDiffusion(object):
 
                             progress_bar.update(1)
 
+                            save_generative_edit = "inversion_generative_"+str(it)+".png"
+                            labeled_generative_image = add_label_to_image((x + 1) * 0.5, save_generative_edit)
+                            images_generative_list.append(labeled_generative_image)
+
+                        # 在循环结束后，将所有图片组合成一张表格图片并保存
+                        grid_inversion_generative_image = create_image_grid(images_generative_list, n_cols=5)  # 根据需要调整每行的图片数量
+                        grid_inversion_generative_image.save(os.path.join(f'{save_boundarydir}/', f"grid_inversion_{mode}_{step}_generative_image.png"))
+
                     img_lat_pairs.append([x0, x.detach().clone(), x_lat.detach().clone(), mid_h_g.detach().clone(), label])
                 tvu.save_image((x + 1) * 0.5, os.path.join(save_boundarydir,f'{mode}_{step}_1_rec_ninv{self.args.n_inv_step}.png'))
                 if step == self.args.n_precomp_img - 1:
                     break
 
             img_lat_pairs_dic[mode] = img_lat_pairs
-            pairs_path = os.path.join('precomputed/',f'{self.config.data.category}_{mode}_t{self.args.t_0}_nim{self.args.n_precomp_img}_ninv{self.args.n_inv_step}_pairs.pth')
+            pairs_path = os.path.join(category_pairs_path,f'{self.config.data.category}_{mode}_t{self.args.t_0}_nim{self.args.n_precomp_img}_ninv{self.args.n_inv_step}_pairs.pth')
             torch.save(img_lat_pairs, pairs_path)
 
         # ----------- Training boundaries -----------#
@@ -478,8 +547,8 @@ class BoundaryDiffusion(object):
                 train_data_z[step, :] = x_lat.view(1,-1).cpu().numpy()
                 train_label[step] = label.cpu().numpy()
 
-            classifier_h = clf_h.fit(train_data_h, train_label)
-            classifier_z = clf_z.fit(train_data_z, train_label)
+            classifier_h = clf_h.fit(train_data_h, train_label)#中间向量
+            classifier_z = clf_z.fit(train_data_z, train_label)#每张图片
             print(np.shape(train_data_h), np.shape(train_data_z), np.shape(train_label))
 
             time_in_end = time.time()
@@ -543,7 +612,7 @@ class BoundaryDiffusion(object):
         img = np.array(img)/255
         img = torch.from_numpy(img).type(torch.FloatTensor).permute(2, 0, 1).unsqueeze(dim=0).repeat(n, 1, 1, 1)
         img = img.to(self.config.device)
-        tvu.save_image(img, os.path.join(self.args.image_folder, f'0_orig.png'))
+        tvu.save_image(img, os.path.join(save_editdir, f'0_orig.png'))
         x0 = (img - 0.5) * 2.
 
         # ----------- Models -----------#
@@ -556,12 +625,10 @@ class BoundaryDiffusion(object):
         model.eval()
 
         # ---------- Load boundary ----------#
-        # boundary_h = pickle.load(open('/hexp/xxq/project/FaceEditingDiffussion/pretrained/smile_boundary_h.sav', 'rb'))
         boundary_h = pickle.load(open(self.args.boundary_h,"rb"))
         a = boundary_h.coef_.reshape(1, 512*8*8).astype(np.float32)
         a = a / np.linalg.norm(a)
 
-        # boundary_z = pickle.load(open('/hexp/xxq/project/FaceEditingDiffussion/pretrained/smile_boundary_z.sav', 'rb'))'
         boundary_z = pickle.load(open(self.args.boundary_z,"rb"))
         z_a = boundary_z.coef_.reshape(1, 3*256*256).astype(np.float32)
         z_a = z_a / np.linalg.norm(z_a) # normalized boundary
@@ -571,8 +638,8 @@ class BoundaryDiffusion(object):
         with torch.no_grad():
             #---------------- Invert Image to Latent in case of Deterministic Inversion process -------------------#
             if self.args.deterministic_inv:
-                x_lat_path = os.path.join(self.args.image_folder, f'x_lat_t{self.args.t_0}_ninv{self.args.n_inv_step}.pth')
-                h_lat_path = os.path.join(self.args.image_folder, f'h_lat_t{self.args.t_0}_ninv{self.args.n_inv_step}.pth')
+                x_lat_path = os.path.join(save_editdir, f'x_lat_t{self.args.t_0}_ninv{self.args.n_inv_step}.pth')
+                h_lat_path = os.path.join(save_editdir, f'h_lat_t{self.args.t_0}_ninv{self.args.n_inv_step}.pth')
                 if not os.path.exists(x_lat_path):
                     seq_inv = np.linspace(0, 1, self.args.n_inv_step) * self.args.t_0
                     seq_inv = [int(s) for s in list(seq_inv)]
@@ -580,6 +647,10 @@ class BoundaryDiffusion(object):
 
                     x = x0.clone()
                     with tqdm(total=len(seq_inv), desc=f"Inversion process ") as progress_bar:
+                        # 初始化一个列表来存储所有的图片和标签
+                        images_inversion_list = []
+                        images_inversion_mid_list = []
+
                         for it, (i, j) in enumerate(zip((seq_inv_next[1:]), (seq_inv[1:]))):
                             t = (torch.ones(n) * i).to(self.device)
                             t_prev = (torch.ones(n) * j).to(self.device)
@@ -587,10 +658,28 @@ class BoundaryDiffusion(object):
                             x, mid_h_g = denoising_step(x, t=t, t_next=t_prev, models=model, logvars=self.logvar, sampling_type='ddim', b=self.betas, eta=0, learn_sigma=learn_sigma, ratio=0)
 
                             progress_bar.update(1)
+
+                            save_inversion_edit = "inversion_"+str(it)+".png"
+                            labeled_inversion_image = add_label_to_image((x + 1) * 0.5, save_inversion_edit)
+                            images_inversion_list.append(labeled_inversion_image)
+
+                            save_inversion_mid_edit = "inversion_mid_"+str(it)+".png"
+                            labeled_inversion_mid_image = add_label_edit_mid_to_image((mid_h_g + 1) * 0.5, save_inversion_mid_edit)
+                            images_inversion_mid_list.append(labeled_inversion_mid_image)
+
+                        # 在循环结束后，将所有图片组合成一张表格图片并保存
+                        grid_inversion_image = create_image_grid(images_inversion_list, n_cols=5)  # 根据需要调整每行的图片数量
+                        grid_inversion_image.save(os.path.join(save_editdir, f"grid_inversion_inversion_x_image.png"))
+
+                        # 在循环结束后，将所有图片组合成一张表格图片并保存
+                        grid_inversion_mid_image = create_image_grid(images_inversion_mid_list, n_cols=5)  # 根据需要调整每行的图片数量
+                        grid_inversion_mid_image.save(os.path.join(save_editdir, f"grid_inversion_inversion_mid_image.png"))
+
+
                         x_lat = x.clone()
                         h_lat = mid_h_g.clone()
-                        torch.save(x_lat, x_lat_path)
-                        torch.save(h_lat, h_lat_path)
+                        torch.save(x_lat, os.path.join(save_editdir,x_lat_path))
+                        torch.save(h_lat, os.path.join(save_editdir,h_lat_path))
 
                 else:
                     print('Latent exists.')
@@ -637,7 +726,10 @@ class BoundaryDiffusion(object):
                 tvu.save_image((x + 1) * 0.5, os.path.join(save_editdir,f'1_lat_ninv{self.args.n_inv_step}.png'))
 
                 # 初始化一个列表来存储所有的图片和标签
-                images_list = []
+                images_z_list = []
+                images_h_list = []
+                images_recon_x_lat_list = []
+
 
                 for k in range(edit_img_number):
                     time_in_start = time.time()
@@ -652,16 +744,26 @@ class BoundaryDiffusion(object):
                             edit_z, edit_h = denoising_step(edit_z, t=t, t_next=t_next, models=model, logvars=self.logvar, sampling_type=self.args.sample_type, b=self.betas, eta=1.0, learn_sigma=learn_sigma, ratio=self.args.model_ratio, hybrid=self.args.hybrid_noise, hybrid_config=HYBRID_CONFIG, edit_h=edit_h)
 
                     x0 = x.clone()
-                    save_edit = "edited_"+str(k)+".png"
-                    labeled_image = add_label_to_image((edit_z + 1) * 0.5, save_edit)
-                    tvu.save_image((edit_z + 1) * 0.5, os.path.join(save_editdir,save_edit))
-                    images_list.append(labeled_image)
+                    save_z_edit = "edited_z_"+str(k)+".png"
+                    labeled_z_image = add_label_to_image((edit_z + 1) * 0.5, save_z_edit)
+                    # tvu.save_image((edit_z + 1) * 0.5, os.path.join(save_editdir,save_z_edit))
+                    images_z_list.append(labeled_z_image)
+
+                    save_h_edit = "edited_h_"+str(k)+".png"
+                    labeled_h_image = add_label_edit_h_to_image((edit_h + 1) * 0.5, save_h_edit)
+                    # tvu.save_image((edit_h + 1) * 0.5, os.path.join(save_editdir,save_h_edit))
+                    images_h_list.append(labeled_h_image)
+
                     time_in_end = time.time()
                     print(f"Editing for 1 image takes {time_in_end - time_in_start:.4f}s")  
 
                 # 在循环结束后，将所有图片组合成一张表格图片并保存
-                grid_image = create_image_grid(images_list, n_cols=5)  # 根据需要调整每行的图片数量
-                grid_image.save(os.path.join(save_editdir, f"grid_image_{it}.png"))
+                grid_z_image = create_image_grid(images_z_list, n_cols=5)  # 根据需要调整每行的图片数量
+                grid_z_image.save(os.path.join(save_editdir, f"grid_generative_image_z_{it}.png"))
+
+                # 在循环结束后，将所有图片组合成一张表格图片并保存
+                grid_h_image = create_image_grid(images_h_list, n_cols=5)  # 根据需要调整每行的图片数量
+                grid_h_image.save(os.path.join(save_editdir, f"grid_generative_image_h_{it}.png"))
 
                 # this is for recons
                 with tqdm(total=len(seq_test), desc="Generative process {}".format(it)) as progress_bar:
@@ -675,10 +777,17 @@ class BoundaryDiffusion(object):
                             tvu.save_image((x + 1) * 0.5, os.path.join(save_editdir,f'2_lat_t{self.args.t_0}_ninv{self.args.n_inv_step}_ngen{self.args.n_test_step}_{i}_it{it}.png'))
                         progress_bar.update(1)
 
+                        save_recon_x_lat_edit = "edited_recon_x_lat_"+str(i)+".png"
+                        labeled_recon_x_lat_image = add_label_to_image((x_lat + 1) * 0.5, save_recon_x_lat_edit)
+                        tvu.save_image((edit_z + 1) * 0.5, os.path.join(save_editdir,save_recon_x_lat_edit))
+                        images_recon_x_lat_list.append(labeled_recon_x_lat_image)
+                      
+                    # 在循环结束后，将所有图片组合成一张表格图片并保存
+                    grid_recon_x_lat_image = create_image_grid(images_recon_x_lat_list, n_cols=5)  # 根据需要调整每行的图片数量
+                    grid_recon_x_lat_image.save(os.path.join(save_editdir, f"grid_edited_recon_x_lat_{it}.png")) 
+
                 x0 = x.clone()
                 save_edit = "recons.png"
                 tvu.save_image((x_lat + 1) * 0.5, os.path.join(save_editdir,save_edit))
-
-                images_list.append(x0)
 
         return None
